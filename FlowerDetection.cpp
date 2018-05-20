@@ -216,26 +216,119 @@ void BRGtoHSV()
 	}
 }
 
+int acceptHPFLaplace(int nr) {
+	int res = abs(nr);
+	if (res > 255) {
+		return 255;
+	}
+	else {
+		return res;
+	}
+}
+vector<vector<int>> calculateFeatureVector(Mat v1) {
+	
+	vector<vector<int>> orientationBins(4, vector<int>(256));
+		
+	Mat src;
+	cvtColor(v1, src, CV_BGR2GRAY);
+	Mat dst = Mat::zeros(src.rows, src.cols, CV_8UC1);
+	Mat magnitude = Mat::zeros(src.rows, src.cols, CV_8UC1);
+	Mat orientation = Mat::zeros(src.rows, src.cols, CV_32SC1);
+	Mat dst3 = Mat::zeros(src.rows, src.cols, CV_8UC1);
+	int min = 255, max = 0;
+	for (int i = 1; i < src.rows - 1; i++) {
+		for (int j = 1; j < src.cols - 1; j++) {
+
+			int pewSumX =
+				(-1) * src.at<uchar>(i - 1, j - 1) +
+				(0) * src.at<uchar>(i, j - 1) +
+				(1) * src.at<uchar>(i + 1, j - 1) +
+				(-2) * src.at<uchar>(i - 1, j) +
+				(0) * src.at<uchar>(i, j) +
+				(2) * src.at<uchar>(i + 1, j) +
+				(-1) * src.at<uchar>(i - 1, j + 1) +
+				(0) * src.at<uchar>(i, j + 1) +
+				(1) * src.at<uchar>(i + 1, j + 1);
+			dst.at<uchar>(i, j) = acceptHPFLaplace(pewSumX);
+
+			int pewSumY =
+				(1) * src.at<uchar>(i - 1, j - 1) +
+				(2) * src.at<uchar>(i, j - 1) +
+				(1) * src.at<uchar>(i + 1, j - 1) +
+				(0) * src.at<uchar>(i - 1, j) +
+				(0) * src.at<uchar>(i, j) +
+				(0) * src.at<uchar>(i + 1, j) +
+				(-1) * src.at<uchar>(i - 1, j + 1) +
+				(-2) * src.at<uchar>(i, j + 1) +
+				(-1) * src.at<uchar>(i + 1, j + 1);
+			dst3.at<uchar>(i, j) = acceptHPFLaplace(pewSumY);
+
+
+		}
+	}
+	
+	for (int i = 1; i < src.rows - 1; i++) {
+		for (int j = 1; j < src.rows - 1; j++) {
+			magnitude.at<uchar>(i, j) = sqrt(pow(dst.at<uchar>(i, j), 2) + pow(dst3.at<uchar>(i, j), 2)) / (4 * sqrt(2));
+			orientation.at<uchar>(i, j) = atan2(dst3.at<uchar>(i, j), dst.at<uchar>(i, j));
+			
+			int a = orientation.at<int>(i, j);
+			int orientationClass = 0;
+			if ((a < PI / 8 && a > -PI / 8) || (a < (7 * PI) / 8 && a > -(7 * PI) / 8)) {
+				orientationClass = 2;
+			}
+			if ((a < (3 * PI) / 8 && a > PI / 8) || (a < (11 * PI) / 8 && a >(9 * PI) / 8)) {
+				orientationClass = 1;
+			}
+			if ((a < (5 * PI) / 8 && a >(3 * PI) / 8) || (a < (13 * PI) / 8 && a >(11 * PI) / 8)) {
+				orientationClass = 0;
+			}
+			if ((a < (7 * PI) / 8 && a >(5 * PI) / 8) || (a < (15 * PI) / 8 && a >(13 * PI) / 8)) {
+				orientationClass = 3;
+			}
+
+			orientationBins[orientationClass][magnitude.at<uchar>(i, j)]++;
+		}
+	}
+
+	return orientationBins;
+}
+
+float compareFeatureVector(vector<vector<int>> v1, vector<vector<int>> v2) {
+
+	vector<float> bin_chi_dst(4);
+	float dst = 0;
+	for (int i = 0; i < 4; i++) {
+		for (int j = 0; j < 256; j++) {
+			if(v2[i][j] != 0)
+				bin_chi_dst[i] += (pow(v1[i][j] - v2[i][j], 2) / v2[i][j]);
+		}
+	}
+	
+	return (bin_chi_dst[1] + bin_chi_dst[2] + bin_chi_dst[3] + bin_chi_dst[0]) / 4;
+}
+
 void detectImage() {
 	char fname[MAX_PATH];
 	while (openFileDlg(fname)) {
 
-		Mat src_image = imread(fname);
+		Mat src_image = imread(fname, CV_LOAD_IMAGE_COLOR);
 		cv::String best_match;
 		float min_cmp = FLT_MAX;
 		vector<cv::String> fn; // std::string in opencv2.4, but cv::String in 3.0
 		string folder_name = "C:\\Users\\kadar\\OneDrive\\Desktop\\an3sem2\\Image Processing\\project\\jpg\\DataSet";
 		cv::glob(folder_name, fn, false);
-		cout << fn.size() << endl;
 		for (int i = 0; i < fn.size(); i++) {
 			cout << i << endl;
-			Mat catalog_img = imread(fn[i]);
+			Mat catalog_img = imread(fn[i], CV_LOAD_IMAGE_COLOR);
 			float cmp = compareHistograms(src_image, catalog_img);
-			if (cmp != 0 && cmp < min_cmp) {
-				min_cmp = cmp;
+			vector<vector<int>> v1 = calculateFeatureVector(src_image);
+			vector<vector<int>> v2 = calculateFeatureVector(catalog_img);
+			float cmp1 = compareFeatureVector(v1, v2);
+			if ((cmp != 0 && cmp1 != 0) && (cmp1) < min_cmp) {
+				min_cmp = cmp1;
 				best_match = fn[i];
 			}
-
 		}
 
 		Mat catalog_img = imread(best_match);
@@ -243,36 +336,6 @@ void detectImage() {
 		imshow("Best match", catalog_img);
 		waitKey();
 	}
-}
-
-void detectHSVImage() {
-		char fname[MAX_PATH];
-		while (openFileDlg(fname)) {
-
-			Mat src_image = imread(fname);
-			cv::String best_match;
-			float min_cmp = FLT_MAX;
-			vector<cv::String> fn; // std::string in opencv2.4, but cv::String in 3.0
-			string folder_name = "C:\\Users\\kadar\\OneDrive\\Desktop\\an3sem2\\Image Processing\\project\\jpg\\DataSetHSV";
-			cv::glob(folder_name, fn, false);
-			cout << fn.size() << endl;
-			for (int i = 0; i < fn.size(); i++) {
-				cout << i << endl;
-				Mat catalog_img = imread(fn[i]);
-				float cmp = compareHistograms(src_image, catalog_img);
-				if (cmp != 0 && cmp < min_cmp) {
-					min_cmp = cmp;
-					best_match = fn[i];
-				}
-
-			}
-
-			Mat catalog_img = imread(best_match);
-			cout << "Best match is picture " << best_match << "with similarity of " << min_cmp << endl;
-			imshow("Best match", catalog_img);
-			waitKey();
-		}
-
 }
 
 int main()
@@ -308,9 +371,6 @@ int main()
 				break;
 			case 5:
 				detectImage();
-				break;
-			case 6:
-				detectHSVImage();
 				
 		}
 	}
