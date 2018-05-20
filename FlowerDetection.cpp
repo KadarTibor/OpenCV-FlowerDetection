@@ -301,7 +301,7 @@ float compareFeatureVector(vector<vector<int>> v1, vector<vector<int>> v2) {
 	for (int i = 0; i < 4; i++) {
 		for (int j = 0; j < 256; j++) {
 			if(v2[i][j] != 0)
-				bin_chi_dst[i] += (pow(v1[i][j] - v2[i][j], 2) / v2[i][j]);
+				bin_chi_dst[i] += j * (pow(v1[i][j] - v2[i][j], 2) / v2[i][j]);
 		}
 	}
 	
